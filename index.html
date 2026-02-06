@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en" class="antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Universal AI v3.0 (Vision + Voice + Artifacts)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: { bg: '#131314', surface: '#1e1f20', input: '#282a2c' }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; height: 100dvh; overflow: hidden; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .dark ::-webkit-scrollbar-thumb { background: #4b5563; }
+
+        /* Code & Artifacts */
+        pre[class*="language-"] { margin: 0.5em 0; border-radius: 0.5rem; background: #1e1e1e !important; font-size: 0.85em; }
+        .code-header {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #2d2d2d; padding: 0.4rem 1rem; border-radius: 0.5rem 0.5rem 0 0;
+            font-size: 0.75rem; color: #9ca3af; border-bottom: 1px solid #374151;
+        }
+        .code-content { border-radius: 0 0 0.5rem 0.5rem; margin-top: 0 !important; }
+        
+        /* Thinking Block */
+        .think-block {
+            border-left: 3px solid #6b7280; padding: 0.75rem; margin: 1rem 0;
+            color: #6b7280; background: rgba(107, 114, 128, 0.05); border-radius: 0 0.5rem 0.5rem 0; font-size: 0.9em;
+        }
+        .dark .think-block { color: #9ca3af; border-color: #4b5563; background: rgba(75, 85, 99, 0.1); }
+
+        /* Loader */
+        #loading { position: fixed; inset: 0; background: #fff; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+        .dark #loading { background: #131314; color: white; }
+
+        /* Preview Modal */
+        #preview-frame { width: 100%; height: 100%; border: none; background: white; }
+    </style>
+</head>
+<body class="bg-white dark:bg-dark-bg text-gray-900 dark:text-gray-100 transition-colors duration-200">
+
+    <div id="loading"><i class="ph ph-spinner animate-spin text-4xl text-blue-500"></i></div>
+
+    <div id="app" class="flex h-full relative opacity-0 transition-opacity duration-500">
+        
+        <div id="sidebar-backdrop" class="fixed inset-0 bg-black/50 z-20 hidden lg:hidden glass" onclick="app.toggleSidebar()"></div>
+
+        <aside id="sidebar" class="absolute lg:relative w-72 h-full bg-gray-50 dark:bg-dark-surface border-r border-gray-200 dark:border-gray-700 transform -translate-x-full lg:translate-x-0 transition-transform duration-300 z-30 flex flex-col">
+            <div class="p-4 space-y-3">
+                <button onclick="app.createNewChat()" class="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl transition-colors text-sm font-medium shadow-sm">
+                    <i class="ph ph-plus text-lg"></i> New Chat
+                </button>
+                <div class="relative">
+                    <i class="ph ph-magnifying-glass absolute left-3 top-2.5 text-gray-400"></i>
+                    <input type="text" placeholder="Search chats..." oninput="app.searchChats(this.value)" class="w-full bg-white dark:bg-dark-input border border-gray-200 dark:border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-2 space-y-1" id="chat-history-list"></div>
+
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+                <button onclick="app.openSettings()" class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <i class="ph ph-gear text-lg"></i> Settings
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col h-full relative w-full">
+            <header class="flex lg:hidden items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-dark-bg/80 backdrop-blur">
+                <button onclick="app.toggleSidebar()" class="p-2 -ml-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><i class="ph ph-list text-2xl"></i></button>
+                <span class="font-semibold text-sm">Universal AI v3</span>
+                <div class="w-8"></div>
+            </header>
+
+            <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth pb-40">
+                <div id="welcome-screen" class="h-full flex flex-col items-center justify-center text-center opacity-0 transition-opacity duration-300">
+                    <div class="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent text-5xl font-bold mb-4">Universal AI</div>
+                    <p class="text-gray-500 dark:text-gray-400 max-w-md">Vision • Voice • Artifacts • Local LLM</p>
+                </div>
+                <div id="messages-list" class="max-w-3xl mx-auto space-y-6 hidden"></div>
+            </div>
+
+            <div class="w-full bg-gradient-to-t from-white via-white to-transparent dark:from-dark-bg dark:via-dark-bg p-4 md:pb-6 relative z-10">
+                <div id="image-preview-container" class="max-w-3xl mx-auto mb-2 flex gap-2 overflow-x-auto hidden"></div>
+
+                <div id="stop-container" class="absolute -top-12 left-0 w-full flex justify-center hidden">
+                    <button onclick="app.stopGeneration()" class="flex items-center gap-2 bg-red-500 text-white px-4 py-1.5 rounded-full text-sm font-medium shadow-lg hover:scale-105 transition-transform">
+                        <i class="ph ph-stop-circle"></i> Stop
+                    </button>
+                </div>
+
+                <div class="max-w-3xl mx-auto relative group">
+                    <textarea id="user-input" rows="1" placeholder="Message AI..." class="w-full bg-gray-100 dark:bg-dark-input border-0 rounded-3xl pl-12 pr-24 py-4 focus:ring-2 focus:ring-blue-500 resize-none max-h-48 overflow-y-auto shadow-sm text-gray-800 dark:text-gray-100 placeholder-gray-500 scrollbar-hide"
+                        oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"
+                        onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); app.sendMessage(); }"></textarea>
+                    
+                    <button onclick="document.getElementById('file-upload').click()" class="absolute left-3 bottom-3 p-2 rounded-full text-gray-500 hover:text-blue-600 transition-colors">
+                        <i class="ph ph-paperclip text-xl"></i>
+                    </button>
+                    <input type="file" id="file-upload" class="hidden" accept="image/*" multiple onchange="app.handleImageUpload(this)">
+
+                    <div class="absolute right-2 bottom-2 flex items-center gap-1">
+                        <button id="mic-btn" onclick="app.toggleVoice()" class="p-2 rounded-full text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                            <i class="ph ph-microphone text-xl"></i>
+                        </button>
+                        <button id="send-btn" onclick="app.sendMessage()" class="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-colors w-10 h-10 flex items-center justify-center disabled:opacity-50">
+                            <i class="ph ph-paper-plane-right text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="preview-modal" class="fixed inset-0 bg-black/80 z-[60] hidden flex items-center justify-center p-4 md:p-8">
+        <div class="bg-white w-full h-full max-w-6xl rounded-xl overflow-hidden flex flex-col relative">
+            <div class="bg-gray-100 p-3 flex justify-between items-center border-b">
+                <span class="font-medium text-gray-700 flex items-center gap-2"><i class="ph ph-eye"></i> Live Preview</span>
+                <button onclick="document.getElementById('preview-modal').classList.add('hidden')" class="p-1 hover:bg-gray-200 rounded"><i class="ph ph-x text-lg"></i></button>
+            </div>
+            <iframe id="preview-frame" sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"></iframe>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white dark:bg-dark-surface w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <h2 class="text-xl font-semibold">Settings</h2>
+                <button onclick="app.closeSettings()" class="text-gray-500 hover:text-gray-800"><i class="ph ph-x text-xl"></i></button>
+            </div>
+            
+            <div class="p-6 space-y-6 overflow-y-auto flex-1">
+                <div class="space-y-3">
+                    <label class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Connection</label>
+                    <input type="text" id="api-url" placeholder="API URL (Default: https://openrouter.ai/api/v1)" class="w-full bg-gray-50 dark:bg-dark-input border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm">
+                    <input type="password" id="api-key" placeholder="API Key (OpenRouter / OpenAI)" class="w-full bg-gray-50 dark:bg-dark-input border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm">
+                </div>
+
+                <div class="space-y-3">
+                    <label class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Model</label>
+                    <select id="model-select" class="w-full bg-gray-50 dark:bg-dark-input border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm" onchange="app.handleModelSelect()">
+                        <option value="deepseek/deepseek-r1:free">DeepSeek R1 (Free)</option>
+                        <option value="google/gemini-2.0-flash-lite-preview-02-05:free">Gemini 2.0 Flash (Free)</option>
+                        <option value="meta-llama/llama-3-8b-instruct:free">Llama 3 8B (Free)</option>
+                        <option value="custom">Custom ID...</option>
+                    </select>
+                    <input type="text" id="model-custom" class="w-full bg-gray-50 dark:bg-dark-input border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm hidden" placeholder="Enter Model ID">
+                </div>
+
+                <div class="space-y-4">
+                    <label class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Parameters</label>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1"><span>Temperature</span><span id="temp-val">0.7</span></div>
+                        <input type="range" id="temp-slider" min="0" max="1" step="0.1" class="w-full accent-blue-600" oninput="document.getElementById('temp-val').innerText = this.value">
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-sm font-semibold text-gray-500 uppercase tracking-wider">System Prompt</label>
+                    <textarea id="sys-prompt" rows="3" class="w-full bg-gray-50 dark:bg-dark-input border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm resize-none"></textarea>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="app.exportChats()" class="flex justify-center items-center gap-2 bg-gray-100 dark:bg-gray-700 py-2 rounded-lg text-sm"><i class="ph ph-download"></i> Export Data</button>
+                    <button onclick="document.getElementById('import-file').click()" class="flex justify-center items-center gap-2 bg-gray-100 dark:bg-gray-700 py-2 rounded-lg text-sm"><i class="ph ph-upload"></i> Import Data</button>
+                    <input type="file" id="import-file" class="hidden" accept=".json" onchange="app.importChats(this)">
+                </div>
+            </div>
+
+            <div class="p-4 bg-gray-50 dark:bg-dark-bg border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                <button onclick="app.toggleTheme()" class="mr-auto text-gray-500 hover:text-blue-600"><i class="ph ph-moon text-xl"></i></button>
+                <button onclick="app.saveSettings()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * UNIVERSAL AI v3.0 - Single File
+         * Vision, Voice, Artifacts, Local LLM Support
+         */
+
+        // --- Custom Renderer for Artifacts & Copy ---
+        const renderer = new marked.Renderer();
+        renderer.code = function(code, language) {
+            const validLang = !!(language && Prism.languages[language]);
+            const langClass = validLang ? language : 'text';
+            const escapedCode = code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+            
+            // Artifact Button for HTML
+            let artifactBtn = '';
+            if (language === 'html' || language === 'xml') {
+                artifactBtn = `<button onclick="app.previewCode(this)" class="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"><i class="ph ph-eye"></i> Preview</button>`;
+            }
+
+            return `
+                <div class="my-4 rounded-lg overflow-hidden border border-gray-700 bg-[#1e1e1e]">
+                    <div class="code-header">
+                        <span class="font-mono text-xs">${language || 'code'}</span>
+                        <div class="flex gap-3">
+                            ${artifactBtn}
+                            <button onclick="app.copyCode(this)" class="flex items-center gap-1 text-xs hover:text-white transition-colors"><i class="ph ph-copy"></i> Copy</button>
+                        </div>
+                    </div>
+                    <pre class="code-content language-${langClass}"><code class="language-${langClass}">${escapedCode}</code></pre>
+                    <div class="hidden raw-code">${encodeURIComponent(code)}</div>
+                </div>
+            `;
+        };
+        marked.setOptions({ renderer: renderer, breaks: true });
+
+        const Utils = {
+            id: () => Date.now().toString(36) + Math.random().toString(36).substr(2),
+            escape: (s) => s.replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;','"':'&quot;'}[c])),
+            time: (ts) => new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+        };
+
+        const AppState = {
+            chats: [],
+            currentChatId: null,
+            settings: {
+                apiKey: '',
+                baseUrl: 'https://openrouter.ai/api/v1',
+                model: 'deepseek/deepseek-r1:free',
+                systemPrompt: 'You are a helpful AI assistant.',
+                temperature: 0.7,
+                theme: 'light'
+            },
+            draft: { images: [] }, // Stores base64 images for current message
+            isGenerating: false,
+            abortCtrl: null,
+            recognition: null
+        };
+
+        const app = {
+            init: () => {
+                // Load State
+                const saved = localStorage.getItem('ai_v3_state');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    AppState.chats = parsed.chats || [];
+                    AppState.settings = { ...AppState.settings, ...parsed.settings };
+                    AppState.currentChatId = parsed.currentChatId;
+                }
+                
+                // Theme
+                if (AppState.settings.theme === 'dark') document.documentElement.classList.add('dark');
+                
+                // Init UI
+                if (!AppState.chats.length) app.createNewChat(true);
+                else if (!AppState.currentChatId) AppState.currentChatId = AppState.chats[0].id;
+                
+                app.renderSidebar();
+                app.renderChat();
+                
+                // Init Voice
+                if ('webkitSpeechRecognition' in window) {
+                    AppState.recognition = new webkitSpeechRecognition();
+                    AppState.recognition.continuous = false;
+                    AppState.recognition.interimResults = false;
+                    AppState.recognition.onresult = (e) => {
+                        const txt = e.results[0][0].transcript;
+                        document.getElementById('user-input').value += txt + ' ';
+                        app.stopVoice();
+                    };
+                    AppState.recognition.onerror = () => app.stopVoice();
+                    AppState.recognition.onend = () => app.stopVoice();
+                }
+
+                setTimeout(() => {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('app').classList.remove('opacity-0');
+                    if (!AppState.settings.apiKey) app.openSettings();
+                }, 600);
+            },
+
+            save: () => {
+                localStorage.setItem('ai_v3_state', JSON.stringify({
+                    chats: AppState.chats,
+                    settings: AppState.settings,
+                    currentChatId: AppState.currentChatId
+                }));
+            },
+
+            // --- Voice ---
+            toggleVoice: () => {
+                const btn = document.getElementById('mic-btn');
+                if (btn.classList.contains('text-red-500')) {
+                    app.stopVoice();
+                } else {
+                    if (AppState.recognition) {
+                        AppState.recognition.start();
+                        btn.classList.add('text-red-500', 'animate-pulse');
+                    } else {
+                        alert("Voice input not supported in this browser.");
+                    }
+                }
+            },
+            stopVoice: () => {
+                if(AppState.recognition) AppState.recognition.stop();
+                document.getElementById('mic-btn').classList.remove('text-red-500', 'animate-pulse');
+            },
+            speak: (text) => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.speak(utterance);
+            },
+
+            // --- Images ---
+            handleImageUpload: (input) => {
+                const files = Array.from(input.files);
+                if (!files.length) return;
+                
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        AppState.draft.images.push(e.target.result); // Base64
+                        app.renderDraftImages();
+                    };
+                    reader.readAsDataURL(file);
+                });
+                input.value = ''; // Reset
+            },
+            renderDraftImages: () => {
+                const container = document.getElementById('image-preview-container');
+                container.innerHTML = '';
+                if (AppState.draft.images.length > 0) {
+                    container.classList.remove('hidden');
+                    AppState.draft.images.forEach((img, idx) => {
+                        const div = document.createElement('div');
+                        div.className = "relative shrink-0";
+                        div.innerHTML = `
+                            <img src="${img}" class="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700">
+                            <button onclick="app.removeImage(${idx})" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"><i class="ph ph-x text-xs"></i></button>
+                        `;
+                        container.appendChild(div);
+                    });
+                } else {
+                    container.classList.add('hidden');
+                }
+            },
+            removeImage: (idx) => {
+                AppState.draft.images.splice(idx, 1);
+                app.renderDraftImages();
+            },
+
+            // --- Chat Core ---
+            renderChat: () => {
+                const container = document.getElementById('messages-list');
+                const welcome = document.getElementById('welcome-screen');
+                const chat = AppState.chats.find(c => c.id === AppState.currentChatId);
+
+                container.innerHTML = '';
+                if (!chat || !chat.messages.length) {
+                    container.classList.add('hidden');
+                    welcome.classList.remove('hidden', 'opacity-0');
+                    setTimeout(() => welcome.classList.add('opacity-100'), 10);
+                    return;
+                }
+
+                welcome.classList.add('hidden');
+                container.classList.remove('hidden');
+
+                chat.messages.forEach(msg => {
+                    const isUser = msg.role === 'user';
+                    const div = document.createElement('div');
+                    div.className = `flex w-full ${isUser ? 'justify-end' : 'justify-start'}`;
+                    
+                    // Render Content
+                    let contentHtml = '';
+                    
+                    // Display Images if any
+                    if (msg.images && msg.images.length) {
+                        contentHtml += `<div class="flex gap-2 mb-2 flex-wrap justify-end">
+                            ${msg.images.map(img => `<img src="${img}" class="h-32 rounded-lg border border-gray-200 dark:border-gray-700">`).join('')}
+                        </div>`;
+                    }
+
+                    if (isUser) {
+                        contentHtml += `<p class="whitespace-pre-wrap">${Utils.escape(msg.content)}</p>`;
+                    } else {
+                        // Think block parsing
+                        let processed = msg.content.replace(/<think>([\s\S]*?)<\/think>/gi, 
+                            '<div class="think-block"><div class="font-bold text-xs uppercase mb-1 opacity-70">Thinking Process</div>$1</div>');
+                        processed = processed.replace(/<think>/gi, '<div class="think-block">Thinking...');
+                        contentHtml += marked.parse(processed);
+                    }
+
+                    div.innerHTML = `
+                        <div class="max-w-[90%] md:max-w-[80%] group relative">
+                            <div class="px-5 py-3 rounded-2xl shadow-sm ${isUser ? 'bg-gray-100 dark:bg-dark-input rounded-br-sm' : 'bg-transparent -ml-4'}">
+                                ${!isUser ? `
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center gap-2 text-xs font-bold text-blue-500 uppercase"><i class="ph ph-sparkle"></i> AI Answer</div>
+                                        <button onclick="app.speak(this.closest('.max-w-\\[90\\%\\]').querySelector('.prose').innerText)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity"><i class="ph ph-speaker-high text-lg"></i></button>
+                                    </div>` : ''}
+                                <div class="prose dark:prose-invert text-sm md:text-base leading-relaxed break-words">${contentHtml}</div>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+                
+                Prism.highlightAllUnder(container);
+                const scrollContainer = document.getElementById('chat-container');
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            },
+
+            sendMessage: async () => {
+                if (AppState.isGenerating) return;
+                const input = document.getElementById('user-input');
+                const text = input.value.trim();
+                const images = [...AppState.draft.images]; // Copy images
+
+                if (!text && !images.length) return;
+                if (!AppState.settings.apiKey && AppState.settings.baseUrl.includes('openrouter')) {
+                    app.openSettings(); return;
+                }
+
+                // Reset Input
+                input.value = '';
+                input.style.height = 'auto';
+                AppState.draft.images = [];
+                app.renderDraftImages();
+                AppState.isGenerating = true;
+                app.updateUIState();
+
+                // 1. Add User Message
+                const chat = AppState.chats.find(c => c.id === AppState.currentChatId);
+                const userMsg = { role: 'user', content: text, timestamp: Date.now() };
+                if (images.length) userMsg.images = images;
+                chat.messages.push(userMsg);
+                
+                if (chat.messages.length === 1) {
+                    chat.title = text.substring(0, 30) || 'Image Chat';
+                    app.renderSidebar();
+                }
+                app.renderChat();
+
+                // 2. Prepare API Request
+                // Format messages for Vision API (OpenAI/OpenRouter standard)
+                const apiMessages = [
+                    { role: "system", content: AppState.settings.systemPrompt },
+                    ...chat.messages.map(m => {
+                        if (m.images && m.images.length) {
+                            return {
+                                role: m.role,
+                                content: [
+                                    { type: "text", text: m.content },
+                                    ...m.images.map(img => ({ type: "image_url", image_url: { url: img } }))
+                                ]
+                            };
+                        }
+                        return { role: m.role, content: m.content };
+                    })
+                ];
+
+                // 3. Add Placeholder
+                chat.messages.push({ role: 'assistant', content: '', timestamp: Date.now() });
+                const aiIndex = chat.messages.length - 1;
+                app.renderChat();
+
+                AppState.abortCtrl = new AbortController();
+
+                try {
+                    const response = await fetch(`${AppState.settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${AppState.settings.apiKey}`,
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": window.location.href,
+                        },
+                        body: JSON.stringify({
+                            model: AppState.settings.model,
+                            messages: apiMessages,
+                            temperature: parseFloat(AppState.settings.temperature),
+                            stream: true
+                        }),
+                        signal: AppState.abortCtrl.signal
+                    });
+
+                    if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let aiText = "";
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split("\n");
+                        for (const line of lines) {
+                            if (line.startsWith("data: ") && line !== "data: [DONE]") {
+                                try {
+                                    const json = JSON.parse(line.substring(6));
+                                    const delta = json.choices[0]?.delta?.content || "";
+                                    aiText += delta;
+                                    chat.messages[aiIndex].content = aiText;
+                                    
+                                    // Throttled render for performance could go here
+                                    // For now, simple re-render
+                                    app.renderChat();
+                                } catch (e) {}
+                            }
+                        }
+                    }
+                    chat.updatedAt = Date.now();
+                    app.save();
+                    app.renderSidebar();
+
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        chat.messages[aiIndex].content += `\n[Error: ${err.message}]`;
+                        app.renderChat();
+                    }
+                } finally {
+                    AppState.isGenerating = false;
+                    AppState.abortCtrl = null;
+                    app.updateUIState();
+                    app.renderChat(); // Final render for syntax highlighting
+                }
+            },
+
+            stopGeneration: () => {
+                if (AppState.abortCtrl) AppState.abortCtrl.abort();
+            },
+
+            // --- Features & Utils ---
+            copyCode: (btn) => {
+                const code = decodeURIComponent(btn.closest('.code-header').nextElementSibling.nextElementSibling.innerText);
+                navigator.clipboard.writeText(code);
+                const original = btn.innerHTML;
+                btn.innerHTML = `<i class="ph ph-check"></i> Copied`;
+                setTimeout(() => btn.innerHTML = original, 2000);
+            },
+
+            previewCode: (btn) => {
+                const rawCode = decodeURIComponent(btn.closest('.code-header').nextElementSibling.nextElementSibling.innerText);
+                const modal = document.getElementById('preview-modal');
+                const iframe = document.getElementById('preview-frame');
+                
+                modal.classList.remove('hidden');
+                
+                // Inject content into iframe
+                const doc = iframe.contentWindow.document;
+                doc.open();
+                doc.write(rawCode);
+                doc.close();
+            },
+
+            searchChats: (query) => {
+                const q = query.toLowerCase();
+                const list = document.getElementById('chat-history-list');
+                const allChats = [...AppState.chats].sort((a, b) => b.updatedAt - a.updatedAt);
+                
+                list.innerHTML = '';
+                allChats.forEach(chat => {
+                    // Search logic: Title or any message content
+                    const match = chat.title.toLowerCase().includes(q) || 
+                                  chat.messages.some(m => m.content.toLowerCase().includes(q));
+                    
+                    if (match) {
+                        const isActive = chat.id === AppState.currentChatId;
+                        const el = document.createElement('div');
+                        el.className = `group flex items-center justify-between p-3 rounded-lg cursor-pointer text-sm mb-1 transition-colors ${isActive ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'}`;
+                        el.onclick = () => app.switchChat(chat.id);
+                        el.innerHTML = `
+                            <div class="flex items-center gap-3 overflow-hidden w-full">
+                                <i class="ph ph-chat-circle text-lg shrink-0"></i>
+                                <span class="truncate">${Utils.escape(chat.title || 'New Chat')}</span>
+                            </div>
+                            <button onclick="event.stopPropagation(); app.deleteChat('${chat.id}')" class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-600"><i class="ph ph-trash"></i></button>
+                        `;
+                        list.appendChild(el);
+                    }
+                });
+            },
+
+            // --- Basic Chat Mgmt (Create, Delete, Switch) ---
+            createNewChat: (silent) => {
+                const nc = { id: Utils.id(), title: 'New Chat', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+                AppState.chats.unshift(nc);
+                AppState.currentChatId = nc.id;
+                app.save();
+                if (!silent) { app.renderSidebar(); app.renderChat(); app.toggleSidebar(); }
+            },
+            switchChat: (id) => {
+                AppState.currentChatId = id;
+                app.save();
+                app.renderSidebar();
+                app.renderChat();
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+            },
+            deleteChat: (id) => {
+                if(confirm("Delete this chat?")) {
+                    AppState.chats = AppState.chats.filter(c => c.id !== id);
+                    if(AppState.currentChatId === id) AppState.currentChatId = AppState.chats[0]?.id || null;
+                    if(!AppState.currentChatId) app.createNewChat(true);
+                    app.save(); app.renderSidebar(); app.renderChat();
+                }
+            },
+
+            // --- Settings UI ---
+            openSettings: () => {
+                document.getElementById('settings-modal').classList.remove('hidden');
+                document.getElementById('api-url').value = AppState.settings.baseUrl;
+                document.getElementById('api-key').value = AppState.settings.apiKey;
+                document.getElementById('sys-prompt').value = AppState.settings.systemPrompt;
+                document.getElementById('temp-slider').value = AppState.settings.temperature;
+                document.getElementById('temp-val').innerText = AppState.settings.temperature;
+                
+                const sel = document.getElementById('model-select');
+                const inp = document.getElementById('model-custom');
+                if ([...sel.options].some(o => o.value === AppState.settings.model)) {
+                    sel.value = AppState.settings.model; inp.classList.add('hidden');
+                } else {
+                    sel.value = 'custom'; inp.classList.remove('hidden'); inp.value = AppState.settings.model;
+                }
+            },
+            closeSettings: () => document.getElementById('settings-modal').classList.add('hidden'),
+            handleModelSelect: () => {
+                const v = document.getElementById('model-select').value;
+                document.getElementById('model-custom').classList.toggle('hidden', v !== 'custom');
+            },
+            saveSettings: () => {
+                AppState.settings.baseUrl = document.getElementById('api-url').value.trim() || 'https://openrouter.ai/api/v1';
+                AppState.settings.apiKey = document.getElementById('api-key').value.trim();
+                AppState.settings.systemPrompt = document.getElementById('sys-prompt').value.trim();
+                AppState.settings.temperature = document.getElementById('temp-slider').value;
+                const sel = document.getElementById('model-select');
+                AppState.settings.model = sel.value === 'custom' ? document.getElementById('model-custom').value.trim() : sel.value;
+                app.save();
+                app.closeSettings();
+            },
+            toggleTheme: () => {
+                AppState.settings.theme = AppState.settings.theme === 'light' ? 'dark' : 'light';
+                document.documentElement.classList.toggle('dark');
+                app.save();
+            },
+            updateUIState: () => {
+                document.getElementById('stop-container').classList.toggle('hidden', !AppState.isGenerating);
+                document.getElementById('send-btn').disabled = AppState.isGenerating;
+            },
+            exportChats: () => {
+                const blob = new Blob([JSON.stringify(AppState)], {type: 'application/json'});
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ai-backup.json'; a.click();
+            },
+            importChats: (inp) => {
+                const r = new FileReader();
+                r.onload = e => {
+                    try {
+                        const d = JSON.parse(e.target.result);
+                        if(d.chats) { AppState.chats = d.chats; AppState.settings = {...AppState.settings, ...d.settings}; app.save(); app.init(); app.closeSettings(); }
+                    } catch(e) { alert('Invalid File'); }
+                };
+                r.readAsText(inp.files[0]);
+            }
+        };
+
+        // Init
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+</html>
